@@ -44,13 +44,14 @@ def reindex_baseline():
 
 @router.post("/query", response_model=QueryResponse)
 def query(req: QueryRequest):
-    cached = cache.get(req.query)
-    if cached:
-        return QueryResponse(**cached, cache_hit=True)
-
+    # Drift is tracked on every incoming query, including cached ones.
     vector = embedder.embed(req.query)
     drift_result = _drift_detector.add_embedding(vector)
     drift_history.append(drift_result["similarity"])
+
+    cached = cache.get(req.query)
+    if cached:
+        return QueryResponse(results=cached["results"], cache_hit=True, drift=drift_result)
 
     hits = vector_store.search(vector, top_k=req.top_k)
     results = [
@@ -59,7 +60,7 @@ def query(req: QueryRequest):
     ]
 
     response = QueryResponse(results=results, cache_hit=False, drift=drift_result)
-    cache.set(req.query, {"results": [r.model_dump() for r in results], "drift": drift_result})
+    cache.set(req.query, {"results": [r.model_dump() for r in results]})
     return response
 
 
