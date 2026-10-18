@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Ops Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<style>
+  :root{--bg:#0f1117;--card:#181b24;--border:#262b38;--text:#e6e8ee;--muted:#8a91a5;--ok:#3ecf8e;--bad:#ff6b6b;--accent:#7c8cff}
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
+  .label{color:var(--muted);font-size:12px;margin-bottom:6px}
+  .value{font-size:24px;font-weight:600}
+  .small{color:var(--muted);font-size:12px;margin-top:4px}
+  .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:16px}
+  .chartbox{height:260px;position:relative}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:14px;cursor:pointer}
+  button.secondary{background:#2a2f3f}
+  button:disabled{opacity:.6;cursor:wait}
+  .ok{color:var(--ok)} .bad{color:var(--bad)}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<h1>Real-Time RAG Ops Platform</h1>
+<div class="sub">Live metrics from this running instance · <a href="/docs">API docs</a> · refreshes every 4s</div>
+
+<div class="actions">
+  <button id="btnTraffic">Run sample traffic</button>
+  <button id="btnDrift" class="secondary">Simulate drift</button>
+  <button id="btnReset" class="secondary">Reset drift</button>
+</div>
+
+<div class="grid">
+  <div class="card"><div class="label">Latency p50</div><div class="value" id="p50">–</div><div class="small" id="count"></div></div>
+  <div class="card"><div class="label">Latency p95</div><div class="value" id="p95">–</div><div class="small" id="slo"></div></div>
+  <div class="card"><div class="label">Latency p99</div><div class="value" id="p99">–</div></div>
+  <div class="card"><div class="label">Cache hit rate</div><div class="value" id="hitrate">–</div><div class="small" id="cachecounts"></div></div>
+  <div class="card"><div class="label">Retrieval Hit@5</div><div class="value" id="hit5">–</div><div class="small" id="hit5detail"></div></div>
+  <div class="card"><div class="label">Drift similarity</div><div class="value" id="sim">–</div><div class="small" id="simdetail"></div></div>
+  <div class="card"><div class="label">Documents indexed</div><div class="value" id="docs">–</div></div>
+</div>
+
+<div class="charts">
+  <div class="card"><div class="label">Recent /query latency (ms)</div><div class="chartbox"><canvas id="latencyChart"></canvas></div></div>
+  <div class="card"><div class="label">Embedding drift: similarity to baseline</div><div class="chartbox"><canvas id="driftChart"></canvas></div></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 1, s = '') => (v === null || v === undefined) ? '–' : Number(v).toFixed(d) + s;
+
+const SAMPLE_QUERIES = [
+  "How does a vector database find similar embeddings?",
+  "Why cache repeated queries in memory?",
+  "What is embedding drift in retrieval?",
+  "How is drift detected with a centroid?",
+  "What are p99 tail latency percentiles?",
+  "Why split documents into chunks?",
+  "Combine keyword and vector search",
+  "Restrict search by source or date"
+];
+
+function lineChart(id, label, color, extra = []) {
+  const axis = { ticks: { color: '#8a91a5' }, grid: { color: '#262b38' } };
+  return new Chart($(id), {
+    type: 'line',
+    data: { labels: [], datasets: [{ label, data: [], borderColor: color, tension: 0.25, pointRadius: 0, borderWidth: 2 }, ...extra] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      scales: { x: axis, y: axis },
+      plugins: { legend: { labels: { color: '#e6e8ee' } } }
+    }
+  });
+}
+
+const latencyChart = lineChart('latencyChart', 'Latency (ms)', '#7c8cff');
+const driftChart = lineChart('driftChart', 'Similarity to baseline', '#3ecf8e', [
+  { label: 'Threshold', data: [], borderColor: '#ff6b6b', borderDash: [6, 4], pointRadius: 0, borderWidth: 1.5 }
+]);
+
+async function refresh() {
+  try {
+    const m = await (await fetch('/metrics')).json();
+
+    $('p50').textContent = fmt(m.latency.p50, 1, ' ms');
+    $('p95').textContent = fmt(m.latency.p95, 1, ' ms');
+    $('p99').textContent = fmt(m.latency.p99, 1, ' ms');
+    $('count').textContent = m.latency.count + ' requests measured';
+    if (m.latency.p95 !== null) {
+      const met = m.latency.p95 <= m.latency.slo_ms;
+      $('slo').innerHTML = 'SLO ' + m.latency.slo_ms + ' ms: <span class="' + (met ? 'ok' : 'bad') + '">' + (met ? 'met' : 'breached') + '</span>';
+    }
+
+    $('hitrate').textContent = fmt(m.cache.hit_rate * 100, 0, '%');
+    $('cachecounts').textContent = m.cache.hits + ' hits / ' + m.cache.misses + ' misses';
+
+    $('hit5').textContent = m.retrieval.hit_at_5 === null ? '–' : fmt(m.retrieval.hit_at_5 * 100, 0, '%');
+    $('hit5detail').textContent = m.retrieval.hits + '/' + m.retrieval.total + ' labeled test queries';
+
+    const d = m.drift;
+    const drifted = d.current_similarity !== null && d.current_similarity < d.threshold;
+    $('sim').textContent = fmt(d.current_similarity, 3);
+    $('sim').className = 'value ' + (d.current_similarity === null ? '' : (drifted ? 'bad' : 'ok'));
+    $('simdetail').textContent = 'threshold ' + d.threshold + ' · ' + d.events + ' drift events';
+
+    $('docs').textContent = m.documents === null ? '–' : m.documents;
+
+    latencyChart.data.labels = m.latency.recent.map((_, i) => i + 1);
+    latencyChart.data.datasets[0].data = m.latency.recent;
+    latencyChart.update();
+
+    driftChart.data.labels = d.history.map((_, i) => i + 1);
+    driftChart.data.datasets[0].data = d.history;
+    driftChart.data.datasets[1].data = d.history.map(() => d.threshold);
+    driftChart.update();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function act(btn, fn) {
+  btn.disabled = true;
+  try { await fn(); } finally { btn.disabled = false; }
+  await refresh();
+}
+
+$('btnTraffic').onclick = e => act(e.target, async () => {
+  for (let round = 0; round < 2; round++) {
+    for (const q of SAMPLE_QUERIES) {
+      await fetch('/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, top_k: 5 })
+      });
+    }
+  }
+});
+$('btnDrift').onclick = e => act(e.target, () => fetch('/simulate-drift', { method: 'POST' }));
+$('btnReset').onclick = e => act(e.target, () => fetch('/reset-drift', { method: 'POST' }));
+
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>
