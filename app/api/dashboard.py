@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from app.api.routes import embedder, vector_store, cache, _drift_detector
 from app.core.drift import cosine_similarity
 from app.core.metrics import latency, drift_history
-from app.core.seed_data import SEED_DOCS, EVAL_QUERIES, OFF_TOPIC_QUERIES
+from app.core.seed_data import SEED_DOCS, EVAL_QUERIES, OFF_TOPIC_QUERIES, BASELINE_QUERIES
 
 dash_router = APIRouter()
 
@@ -44,7 +44,7 @@ def seed_if_empty():
         if vector_store.count() == 0:
             for doc_id, text in SEED_DOCS:
                 vector_store.upsert(doc_id, embedder.embed(text), {"text": text, "source": "seed"})
-        vectors = np.stack([embedder.embed(text) for _, text in SEED_DOCS])
+                vectors = np.stack([embedder.embed(q) for q in BASELINE_QUERIES])
         _drift_detector.baseline_centroid = vectors.mean(axis=0)
         run_eval()
     except Exception as exc:
