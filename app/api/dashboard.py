@@ -44,7 +44,7 @@ def seed_if_empty():
         if vector_store.count() == 0:
             for doc_id, text in SEED_DOCS:
                 vector_store.upsert(doc_id, embedder.embed(text), {"text": text, "source": "seed"})
-                vectors = np.stack([embedder.embed(q) for q in BASELINE_QUERIES])
+        vectors = np.stack([embedder.embed(q) for q in BASELINE_QUERIES])
         _drift_detector.baseline_centroid = vectors.mean(axis=0)
         run_eval()
     except Exception as exc:
