@@ -1,11 +1,12 @@
 import os
 import numpy as np
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.core.embedder import NgramEmbedder
 from app.core.qdrant_client import VectorStore
 from app.core.cache import QueryCache
 from app.core.drift import DriftDetector
+from app.core.metrics import drift_history
 from app.models.schemas import IndexRequest, QueryRequest, QueryResponse, QueryResult
 
 router = APIRouter()
@@ -17,8 +18,7 @@ embedder = NgramEmbedder(
 vector_store = VectorStore()
 cache = QueryCache()
 
-# Baseline centroid starts as a zero vector until the first documents are indexed;
-# call /reindex-baseline after bulk-loading a corpus to set a real baseline.
+# Baseline centroid starts as a zero vector; the startup seeding sets a real one.
 _drift_detector = DriftDetector(
     baseline_centroid=np.zeros(embedder.dim, dtype=np.float32),
     window_size=int(os.getenv("DRIFT_WINDOW_SIZE", "50")),
@@ -28,6 +28,9 @@ _drift_detector = DriftDetector(
 
 @router.post("/index")
 def index_document(req: IndexRequest):
+    # Keep the public demo from filling the free-tier database.
+    if vector_store.count() >= int(os.getenv("MAX_DOCS", "200")):
+        raise HTTPException(status_code=429, detail="Demo document limit reached")
     vector = embedder.embed(req.text)
     vector_store.upsert(req.doc_id, vector, {"text": req.text, **req.metadata})
     return {"status": "indexed", "doc_id": req.doc_id}
@@ -47,6 +50,7 @@ def query(req: QueryRequest):
 
     vector = embedder.embed(req.query)
     drift_result = _drift_detector.add_embedding(vector)
+    drift_history.append(drift_result["similarity"])
 
     hits = vector_store.search(vector, top_k=req.top_k)
     results = [
