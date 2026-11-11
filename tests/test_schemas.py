@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from app.models.schemas import IndexRequest, QueryRequest, QueryResult, QueryResponse
 
 
@@ -34,3 +37,29 @@ def test_query_response_wraps_results_list():
     assert len(resp.results) == 1
     assert resp.cache_hit is True
     assert resp.drift == {"score": 0.1}
+
+
+@pytest.mark.parametrize("top_k", [0, -3, 51, 1_000_000])
+def test_query_request_rejects_out_of_range_top_k(top_k):
+    with pytest.raises(ValidationError):
+        QueryRequest(query="what is rag", top_k=top_k)
+
+
+@pytest.mark.parametrize("top_k", [1, 50])
+def test_query_request_accepts_the_top_k_bounds(top_k):
+    assert QueryRequest(query="what is rag", top_k=top_k).top_k == top_k
+
+
+@pytest.mark.parametrize("query", ["", "   ", "\n"])
+def test_query_request_rejects_blank_query(query):
+    with pytest.raises(ValidationError):
+        QueryRequest(query=query)
+
+
+def test_query_request_strips_surrounding_whitespace():
+    assert QueryRequest(query="  what is rag \n").query == "what is rag"
+
+
+def test_query_request_rejects_oversized_query():
+    with pytest.raises(ValidationError):
+        QueryRequest(query="x" * 2001)

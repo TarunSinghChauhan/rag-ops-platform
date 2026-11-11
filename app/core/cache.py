@@ -31,12 +31,15 @@ class QueryCache:
         self.misses = 0
 
     @staticmethod
-    def _key(query: str) -> str:
-        return "ragops:query:" + hashlib.sha256(query.encode("utf-8")).hexdigest()
+    def _key(query: str, top_k: int = 5) -> str:
+        # top_k is part of the key: a cached 1-result answer must not be served to a
+        # request that asked for 10 results for the same text.
+        material = f"{top_k}\n{query}"
+        return "ragops:query:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
 
-    def get(self, query: str):
+    def get(self, query: str, top_k: int = 5):
         try:
-            raw = self.client.get(self._key(query))
+            raw = self.client.get(self._key(query, top_k))
         except redis.RedisError:
             return None  # cache outage should never break a query
         if raw:
@@ -45,9 +48,9 @@ class QueryCache:
         self.misses += 1
         return None
 
-    def set(self, query: str, result: dict):
+    def set(self, query: str, result: dict, top_k: int = 5):
         try:
-            self.client.setex(self._key(query), self.ttl, json.dumps(result))
+            self.client.setex(self._key(query, top_k), self.ttl, json.dumps(result))
         except redis.RedisError:
             pass
 
