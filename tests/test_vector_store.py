@@ -64,8 +64,21 @@ def test_upsert_sends_point_with_vector_as_list():
     assert point.payload == {"text": "chunk"}
 
 
-def test_search_passes_vector_as_list_and_top_k():
+def test_search_uses_query_points_when_the_client_has_it():
     store, mock_client = make_store(existing_collections=["rag_ops_docs"])
+    mock_client.query_points.return_value = MagicMock(points=["p1", "p2"])
+    results = store.search(np.array([0.5, 0.6]), top_k=3)
+    _, kwargs = mock_client.query_points.call_args
+    assert kwargs["collection_name"] == store.collection
+    assert kwargs["query"] == [0.5, 0.6]
+    assert kwargs["limit"] == 3
+    assert results == ["p1", "p2"]
+    mock_client.search.assert_not_called()
+
+
+def test_search_falls_back_to_search_on_older_clients():
+    store, mock_client = make_store(existing_collections=["rag_ops_docs"])
+    del mock_client.query_points  # older qdrant-client: only .search exists
     mock_client.search.return_value = ["result1", "result2"]
     vector = np.array([0.5, 0.6])
     results = store.search(vector, top_k=3)

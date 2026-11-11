@@ -49,7 +49,7 @@ def query(req: QueryRequest):
     drift_result = _drift_detector.add_embedding(vector)
     drift_history.append(drift_result["similarity"])
 
-    cached = cache.get(req.query)
+    cached = cache.get(req.query, req.top_k)
     if cached:
         return QueryResponse(results=cached["results"], cache_hit=True, drift=drift_result)
 
@@ -60,7 +60,7 @@ def query(req: QueryRequest):
     ]
 
     response = QueryResponse(results=results, cache_hit=False, drift=drift_result)
-    cache.set(req.query, {"results": [r.model_dump() for r in results]})
+    cache.set(req.query, {"results": [r.model_dump() for r in results]}, req.top_k)
     return response
 
 
