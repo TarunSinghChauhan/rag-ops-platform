@@ -29,7 +29,9 @@ app = FastAPI(
 async def track_latency(request, call_next):
     start = time.perf_counter()
     response = await call_next(request)
-    if request.url.path == "/query":
+    # Rejected requests (422 validation errors and the like) return in microseconds and
+    # would drag the percentiles down; only answered queries are a latency sample.
+    if request.url.path == "/query" and response.status_code < 400:
         latency.record((time.perf_counter() - start) * 1000)
     return response
 

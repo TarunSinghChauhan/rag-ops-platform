@@ -152,3 +152,31 @@ def test_index_refuses_new_documents_once_the_demo_limit_is_reached(client, monk
         resp = client.post("/index", json={"doc_id": 9, "text": "one more"})
     assert resp.status_code == 429
     upsert.assert_not_called()
+
+
+def test_only_answered_queries_are_recorded_as_latency_samples(client):
+    fake_hit = MagicMock(id=1, score=0.9, payload={})
+    with patch.object(main_module.latency, "record") as record, \
+         patch.object(routes_module.cache, "get", return_value=None), \
+         patch.object(routes_module.cache, "set"), \
+         patch.object(routes_module.vector_store, "search", return_value=[fake_hit]):
+        client.post("/query", json={"query": "   "})                 # 422: rejected
+        client.post("/query", json={"query": "ok", "top_k": 0})      # 422: rejected
+        record.assert_not_called()
+        client.post("/query", json={"query": "what is rag"})         # 200: answered
+        record.assert_called_once()
+
+
+def test_first_queries_after_a_reset_do_not_raise_drift_events(client):
+    from app.api import dashboard
+
+    dashboard.reset_drift()
+    fake_hit = MagicMock(id=1, score=0.9, payload={})
+    with patch.object(routes_module.cache, "get", return_value=None), \
+         patch.object(routes_module.cache, "set"), \
+         patch.object(routes_module.vector_store, "search", return_value=[fake_hit]):
+        body = client.post("/query", json={"query": "cheap flights to Goa"}).json()
+    assert body["drift"]["warming_up"] is True
+    assert body["drift"]["drifted"] is False
+    assert client.get("/metrics").json()["drift"]["events"] == 0
+    dashboard.reset_drift()

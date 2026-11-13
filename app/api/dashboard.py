@@ -74,7 +74,7 @@ def metrics():
             "current_similarity": similarity,
             "threshold": _drift_detector.threshold,
             "window_size": window_n,
-            "events": len(_drift_detector.drift_events),
+            "events": _drift_detector.total_events,
             "history": [round(float(x), 4) for x in drift_history],
         },
         "retrieval": {k: _eval_result[k] for k in ("k", "hit_at_5", "hits", "total")},
@@ -101,6 +101,6 @@ def simulate_drift():
 @dash_router.post("/reset-drift")
 def reset_drift():
     _drift_detector.window.clear()
-    _drift_detector.drift_events.clear()
+    _drift_detector.clear_events()
     drift_history.clear()
     return {"status": "reset"}

@@ -1,6 +1,6 @@
 # Real-Time RAG Ops Platform with Drift Detection
 
-A production-style retrieval observability platform: deterministic (zero-API-cost) embeddings, Qdrant vector search, Redis caching, cosine-similarity embedding drift detection with re-indexing triggers, and a live ops dashboard.
+A production-style retrieval observability platform: deterministic (zero-API-cost) embeddings, Qdrant vector search, Redis caching, cosine-similarity embedding drift detection with a manual baseline reset, and a live ops dashboard.
 
 **Live demo:** [rag-ops-platform-7dzz.onrender.com/dashboard](https://rag-ops-platform-7dzz.onrender.com/dashboard)
 *(Hosted on Render's free tier. If the instance is asleep, the first load can take up to ~50 seconds.)*
@@ -68,7 +68,9 @@ Click **Run sample traffic** on the dashboard to generate queries and populate t
 
 1. Each incoming document or query is embedded by the n-gram hasher into a fixed 384-dimensional vector.
 2. A rolling window of recent embedding centroids is compared against the baseline centroid using cosine similarity.
-3. If similarity drops below a configurable threshold (0.6 by default in the demo), a drift event is logged and a re-indexing job is triggered.
+3. Once the window is full, if similarity drops below the threshold (`DRIFT_SIMILARITY_THRESHOLD`, 0.85 by default; the example readings above were taken with 0.6), a drift event is recorded. Nothing is re-indexed automatically: `POST /reindex-baseline` resets the baseline to the current window, and the vector index itself is not rebuilt.
+
+Until the window holds `DRIFT_WINDOW_SIZE` embeddings (set `DRIFT_MIN_SAMPLES` to judge earlier) no drift verdict is made, so the first few queries after a start or reset cannot raise a false alarm. Only the most recent 1000 events are kept; the dashboard counter keeps the running total.
 
 **Simulate drift** feeds the system off-distribution text so you can watch similarity fall and an event fire. **Reset drift** restores the baseline.
 
@@ -102,14 +104,14 @@ Documenting these on purpose:
 - **Small scale.** The demo indexes 20 documents and the latency figures come from a few dozen requests. Percentiles from so few samples are noisy, and the first request (cold start) can dominate p99.
 - **Hit@5 is easy on a tiny corpus.** With 20 documents, the top 5 covers a quarter of the corpus, and the test set has 18 queries. Read 100% as "the pipeline works end to end", not as evidence of retrieval quality at scale.
 - **Lexical, not semantic, embeddings.** See the trade-off above.
-- **Drift is simulated in the demo.** The drift events you see come from the **Simulate drift** control and from the rolling window filling up at startup. They are not from real production traffic shifting.
+- **Drift is simulated in the demo.** The drift events you see come from the **Simulate drift** control, which fills the whole window with off-topic text, so it records a single event when the window fills. They are not from real production traffic shifting.
 - **Retrieval only.** There is no LLM generation step. This is the retrieval and observability layer of a RAG system.
 
 ## Roadmap
 
 - [ ] Swap in a semantic embedding model behind the same embedder interface
 - [ ] Larger labeled evaluation set, with MRR alongside Hit@5
-- [ ] Skip drift alerts until the rolling window is full
+- [x] Skip drift alerts until the rolling window is full
 - [ ] Persist metrics beyond process restarts
 - [ ] Expand test coverage
 
