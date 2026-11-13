@@ -23,6 +23,8 @@ _drift_detector = DriftDetector(
     baseline_centroid=np.zeros(embedder.dim, dtype=np.float32),
     window_size=int(os.getenv("DRIFT_WINDOW_SIZE", "50")),
     threshold=float(os.getenv("DRIFT_SIMILARITY_THRESHOLD", "0.85")),
+    # Unset = wait for a full window before judging drift (see DriftDetector).
+    min_samples=int(os.environ["DRIFT_MIN_SAMPLES"]) if os.getenv("DRIFT_MIN_SAMPLES") else None,
 )
 
 
