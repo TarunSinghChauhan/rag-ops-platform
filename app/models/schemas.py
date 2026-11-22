@@ -2,8 +2,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class IndexRequest(BaseModel):
-    doc_id: int
-    text: str
+    # Qdrant point ids are unsigned integers: a negative id was accepted here and then
+    # failed inside the upsert as a 500. An empty text embeds to a zero vector, which
+    # cosine search cannot rank; the length cap keeps one request from hashing megabytes.
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    doc_id: int = Field(ge=0, le=2**63 - 1)
+    text: str = Field(min_length=1, max_length=20000)
     metadata: dict = {}
 
 
