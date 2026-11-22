@@ -34,7 +34,12 @@ def index_document(req: IndexRequest):
     if vector_store.count() >= int(os.getenv("MAX_DOCS", "200")):
         raise HTTPException(status_code=429, detail="Demo document limit reached")
     vector = embedder.embed(req.text)
-    vector_store.upsert(req.doc_id, vector, {"text": req.text, **req.metadata})
+    # The real text goes last: metadata {"text": ...} used to silently replace it, so search
+    # results showed text that was never embedded.
+    vector_store.upsert(req.doc_id, vector, {**req.metadata, "text": req.text})
+    # Cached answers were computed against the old corpus; without this a new or changed
+    # document is invisible to every previously asked query until the TTL expires.
+    cache.invalidate()
     return {"status": "indexed", "doc_id": req.doc_id}
 
 

@@ -54,6 +54,30 @@ class QueryCache:
         except redis.RedisError:
             pass
 
+    def invalidate(self) -> int:
+        """Delete every cached query result; returns how many were removed.
+
+        Cached answers are keyed by query text and top_k only, so once the corpus changes
+        they are stale for up to the TTL (an hour by default): a freshly indexed document
+        would not show up in any query that had been asked before. Only keys under this
+        cache's own prefix are touched. A Redis outage is not an error here, same as get/set.
+        """
+        removed = 0
+        batch: list[str] = []
+        try:
+            for key in self.client.scan_iter(match="ragops:query:*", count=200):
+                batch.append(key)
+                if len(batch) >= 200:
+                    self.client.delete(*batch)
+                    removed += len(batch)
+                    batch = []
+            if batch:
+                self.client.delete(*batch)
+                removed += len(batch)
+        except redis.RedisError:
+            pass
+        return removed
+
     def stats(self) -> dict:
         total = self.hits + self.misses
         return {
