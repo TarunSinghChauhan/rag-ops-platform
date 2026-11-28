@@ -45,7 +45,10 @@ def index_document(req: IndexRequest):
 
 @router.post("/reindex-baseline")
 def reindex_baseline():
-    _drift_detector.reindex_baseline()
+    # The baseline is the centroid of the recent queries, so with none there is nothing to
+    # reset to. This used to answer "baseline reset" without having changed anything.
+    if not _drift_detector.reindex_baseline():
+        raise HTTPException(status_code=409, detail="No recent queries in the window; baseline unchanged")
     return {"status": "baseline reset"}
 
 
@@ -54,7 +57,8 @@ def query(req: QueryRequest):
     # Drift is tracked on every incoming query, including cached ones.
     vector = embedder.embed(req.query)
     drift_result = _drift_detector.add_embedding(vector)
-    drift_history.append(drift_result["similarity"])
+    if drift_result["similarity"] is not None:
+        drift_history.append(drift_result["similarity"])
 
     cached = cache.get(req.query, req.top_k)
     if cached:

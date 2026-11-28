@@ -37,11 +37,30 @@ class DriftDetector:
         self.drift_events: list[dict] = []
         self.total_events = 0
 
+    @property
+    def baseline_ready(self) -> bool:
+        """False while the baseline is still the all-zero placeholder (never seeded)."""
+        return float(np.linalg.norm(self.baseline_centroid)) > 0
+
     def add_embedding(self, vector: np.ndarray) -> dict:
         self.window.append(vector)
+        warming_up = len(self.window) < self.min_samples
+
+        if not self.baseline_ready:
+            # Nothing to compare against. cosine_similarity() returns 0.0 for a zero vector, which
+            # used to be reported as a real similarity of 0 and flagged as drift on every query
+            # (for example when startup seeding failed and the baseline stayed zero).
+            return {
+                "similarity": None,
+                "threshold": self.threshold,
+                "drifted": False,
+                "warming_up": warming_up,
+                "baseline_unset": True,
+                "window_size": len(self.window),
+            }
+
         current_centroid = np.mean(np.stack(self.window), axis=0)
         similarity = cosine_similarity(self.baseline_centroid, current_centroid)
-        warming_up = len(self.window) < self.min_samples
         drifted = (not warming_up) and similarity < self.threshold
 
         result = {
@@ -65,7 +84,13 @@ class DriftDetector:
         self.drift_events.clear()
         self.total_events = 0
 
-    def reindex_baseline(self):
-        """Call after re-indexing to reset baseline to the current window centroid."""
-        if self.window:
-            self.baseline_centroid = np.mean(np.stack(self.window), axis=0)
+    def reindex_baseline(self) -> bool:
+        """Call after re-indexing to reset baseline to the current window centroid.
+
+        Returns False (and changes nothing) when the window is empty, so callers can tell
+        a real reset from a no-op.
+        """
+        if not self.window:
+            return False
+        self.baseline_centroid = np.mean(np.stack(self.window), axis=0)
+        return True
