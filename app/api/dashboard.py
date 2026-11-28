@@ -40,12 +40,15 @@ def run_eval(k: int = 5) -> dict:
 
 def seed_if_empty():
     """Index the sample corpus once, set the drift baseline, and run the Hit@5 eval."""
+    # The baseline needs no database, so set it first. It used to be set after the Qdrant calls
+    # in the same try block, so a Qdrant outage at startup left it as the zero placeholder and
+    # every query was then reported as drift.
+    vectors = np.stack([embedder.embed(q) for q in BASELINE_QUERIES])
+    _drift_detector.baseline_centroid = vectors.mean(axis=0)
     try:
         if vector_store.count() == 0:
             for doc_id, text in SEED_DOCS:
                 vector_store.upsert(doc_id, embedder.embed(text), {"text": text, "source": "seed"})
-        vectors = np.stack([embedder.embed(q) for q in BASELINE_QUERIES])
-        _drift_detector.baseline_centroid = vectors.mean(axis=0)
         run_eval()
     except Exception as exc:
         print(f"[startup] seeding skipped: {exc}")
@@ -60,7 +63,7 @@ def dashboard():
 def metrics():
     window_n = len(_drift_detector.window)
     similarity = None
-    if window_n:
+    if window_n and _drift_detector.baseline_ready:
         current = np.mean(np.stack(_drift_detector.window), axis=0)
         similarity = round(cosine_similarity(_drift_detector.baseline_centroid, current), 4)
     try:
@@ -94,7 +97,8 @@ def simulate_drift():
     for i in range(_drift_detector.window.maxlen):
         text = OFF_TOPIC_QUERIES[i % len(OFF_TOPIC_QUERIES)]
         result = _drift_detector.add_embedding(embedder.embed(text))
-        drift_history.append(result["similarity"])
+        if result["similarity"] is not None:
+            drift_history.append(result["similarity"])
     return result
 
 
